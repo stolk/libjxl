@@ -197,7 +197,11 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
       float rcost = std::numeric_limits<float>::max();
       Predictor lpred = Predictor::Zero;
       Predictor rpred = Predictor::Zero;
-      float Cost() const { return lcost + rcost; }
+      float Cost() const {
+        const float max_flt = std::numeric_limits<float>::max();
+        const bool at_max = lcost >= max_flt || rcost >= max_flt;
+        return at_max ? max_flt : (lcost + rcost);
+      }
     };
 
     SplitInfo best_split_static_constant;
@@ -419,15 +423,23 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
         }
       }
 
+      // If the cost is FLT_MAX, we can't add to it, or multiply it with a
+      // factor > 1. Doing so would cause a floating point exception.
+      const bool best_at_max_cost =
+          best->Cost() >= std::numeric_limits<float>::max();
+      const float multiplier = best_at_max_cost
+                                   ? std::min(fast_decode_multiplier, 1.0f)
+                                   : fast_decode_multiplier;
+
       // Try to avoid introducing WP.
       if (best_split_nowp.Cost() + threshold < base_bits &&
-          best_split_nowp.Cost() <= fast_decode_multiplier * best->Cost()) {
+          best_split_nowp.Cost() <= multiplier * best->Cost()) {
         best = &best_split_nowp;
       }
       // Split along static props if possible and not significantly more
       // expensive.
       if (best_split_static.Cost() + threshold < base_bits &&
-          best_split_static.Cost() <= fast_decode_multiplier * best->Cost()) {
+          best_split_static.Cost() <= multiplier * best->Cost()) {
         best = &best_split_static;
       }
       // Split along static props to create constant nodes if possible.
